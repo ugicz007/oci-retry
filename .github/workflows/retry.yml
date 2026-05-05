@@ -37,6 +37,15 @@ jobs:
             --query "length(data)" 2>/dev/null || echo 0)
           echo "running=$COUNT" >> $GITHUB_OUTPUT
 
+      - name: VM already running
+        if: steps.check_vm.outputs.running != '0'
+        run: |
+          echo "VM myinvoice uz bezi. Zastavte workflow rucne v GitHub Actions."
+          curl -s -X POST https://ntfy.sh/myinvoice-oci-gzjerfpw1hpw \
+            -H "Title: OCI myinvoice" \
+            -H "Tags: white_check_mark" \
+            -d "VM uz bezi - workflow zastaven. Zkontroluj OCI Console."
+
       - name: Try launch in each AD
         if: steps.check_vm.outputs.running == '0'
         run: |
@@ -58,9 +67,14 @@ jobs:
               --assign-public-ip true \
               --ssh-authorized-keys-file <(echo "$SSH_KEY") \
               --wait-for-state RUNNING 2>&1 | tee /tmp/out.txt; then
-              IP=$(python3 -c "import sys,json; d=json.load(open('/tmp/out.txt')); print(d['data']['public-ip'])" 2>/dev/null || echo "viz OCI Console")
+              IP=$(python3 -c "import json; d=json.load(open('/tmp/out.txt')); print(d['data']['public-ip'])" 2>/dev/null || echo "viz OCI Console")
               echo "VM spustena! IP: $IP"
-              echo "SSH: ssh -i myinvoice_vm_key ubuntu@$IP"
+              curl -s -X POST https://ntfy.sh/myinvoice-oci-gzjerfpw1hpw \
+                -H "Title: ✅ OCI VM je hotova!" \
+                -H "Priority: high" \
+                -H "Tags: rocket" \
+                -d "myinvoice VM bezi na IP: $IP
+SSH: ssh -i myinvoice_vm_key ubuntu@$IP"
               exit 0
             else
               echo "$AD kapacita nedostupna"
@@ -68,7 +82,3 @@ jobs:
           done
           echo "Vsechny AD plne, zkusim za 10 minut."
           exit 0
-
-      - name: VM already running
-        if: steps.check_vm.outputs.running != '0'
-        run: echo "VM myinvoice uz bezi. Zastavte workflow rucne v GitHub Actions."
