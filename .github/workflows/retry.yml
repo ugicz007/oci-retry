@@ -73,8 +73,7 @@ jobs:
                 -H "Title: ✅ OCI VM je hotova!" \
                 -H "Priority: high" \
                 -H "Tags: rocket" \
-                -d "myinvoice VM bezi na IP: $IP
-SSH: ssh -i myinvoice_vm_key ubuntu@$IP"
+                -d "myinvoice VM bezi na IP: $IP | SSH: ssh -i myinvoice_vm_key ubuntu@$IP"
               exit 0
             else
               echo "$AD kapacita nedostupna"
