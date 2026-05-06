@@ -56,9 +56,12 @@ jobs:
           IMAGE="ocid1.image.oc1.eu-frankfurt-1.aaaaaaaafa6df4ne6anvdzb5k5gqz6veykx2pmu7padzkxzy4ognjhty7pma"
           SSH_KEY="${{ secrets.VM_SSH_PUBLIC_KEY }}"
 
+          export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
+          export SUPPRESS_LABEL_WARNING=True
+
           for AD in EU-FRANKFURT-1-AD-1 EU-FRANKFURT-1-AD-2 EU-FRANKFURT-1-AD-3; do
             echo "Zkousim EVmv:$AD..."
-            if oci compute instance launch \
+            oci compute instance launch \
               --compartment-id "$TENANCY" \
               --availability-domain "EVmv:$AD" \
               --display-name "myinvoice" \
@@ -68,8 +71,11 @@ jobs:
               --shape-config '{"ocpus":1,"memoryInGBs":6}' \
               --assign-public-ip true \
               --ssh-authorized-keys-file <(echo "$SSH_KEY") \
-              --wait-for-state RUNNING 2>&1 | tee /tmp/out.txt; then
-              IP=$(python3 -c "import json,sys; d=json.load(open('/tmp/out.txt')); print(d['data']['public-ip'])" 2>/dev/null || echo "viz OCI Console")
+              --wait-for-state RUNNING > /tmp/out.txt 2>&1
+            EXIT_CODE=$?
+            cat /tmp/out.txt
+            if [ $EXIT_CODE -eq 0 ]; then
+              IP=$(python3 -c "import json; d=json.load(open('/tmp/out.txt')); print(d['data']['public-ip'])" 2>/dev/null || echo "viz OCI Console")
               echo "VM spustena! IP: $IP"
               curl -s -X POST https://ntfy.sh/myinvoice-oci-gzjerfpw1hpw \
                 -H "Title: OCI VM je hotova!" \
