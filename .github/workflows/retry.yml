@@ -30,11 +30,13 @@ jobs:
         id: check_vm
         run: |
           TENANCY="ocid1.tenancy.oc1..aaaaaaaapdsseekeu76fqizickfz2gawyhdggvloa5jzxnmb7h46kjbotgaa"
-          COUNT=$(oci compute instance list \
-            --compartment-id $TENANCY \
+          RESULT=$(oci compute instance list \
+            --compartment-id "$TENANCY" \
             --display-name myinvoice \
-            --lifecycle-state RUNNING \
-            --query "length(data)" 2>/dev/null || echo 0)
+            --lifecycle-state RUNNING 2>/dev/null || echo '{"data":[]}')
+          COUNT=$(echo "$RESULT" | grep -c '"lifecycle-state"' || true)
+          [ -z "$COUNT" ] && COUNT=0
+          echo "Running instance count: $COUNT"
           echo "running=$COUNT" >> $GITHUB_OUTPUT
 
       - name: VM already running
@@ -67,10 +69,10 @@ jobs:
               --assign-public-ip true \
               --ssh-authorized-keys-file <(echo "$SSH_KEY") \
               --wait-for-state RUNNING 2>&1 | tee /tmp/out.txt; then
-              IP=$(python3 -c "import json; d=json.load(open('/tmp/out.txt')); print(d['data']['public-ip'])" 2>/dev/null || echo "viz OCI Console")
+              IP=$(python3 -c "import json,sys; d=json.load(open('/tmp/out.txt')); print(d['data']['public-ip'])" 2>/dev/null || echo "viz OCI Console")
               echo "VM spustena! IP: $IP"
               curl -s -X POST https://ntfy.sh/myinvoice-oci-gzjerfpw1hpw \
-                -H "Title: ✅ OCI VM je hotova!" \
+                -H "Title: OCI VM je hotova!" \
                 -H "Priority: high" \
                 -H "Tags: rocket" \
                 -d "myinvoice VM bezi na IP: $IP | SSH: ssh -i myinvoice_vm_key ubuntu@$IP"
