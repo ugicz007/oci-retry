@@ -1,0 +1,71 @@
+name: OCI Status Summary
+
+on:
+  schedule:
+    - cron: '0 5 * * *'    # 07:00 CEST (UTC+2)
+    - cron: '0 12 * * *'   # 14:00 CEST
+    - cron: '0 19 * * *'   # 21:00 CEST
+  workflow_dispatch:
+
+permissions:
+  actions: read
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install OCI CLI
+        run: pip install oci-cli --quiet
+
+      - name: Write OCI config
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=ocid1.user.oc1..aaaaaaaa3kittvu6yuqabigqqdfpjnlnhpliwhn3qpkcxhwrd2mhfxveldzq
+          fingerprint=a0:2b:75:1c:2e:73:a6:5a:48:37:92:d1:9a:5e:b7:6f
+          tenancy=ocid1.tenancy.oc1..aaaaaaaapdsseekeu76fqizickfz2gawyhdggvloa5jzxnmb7h46kjbotgaa
+          region=eu-frankfurt-1
+          key_file=~/.oci/oci_api_key.pem
+          EOF
+
+      - name: Count attempts and send summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
+          TENANCY="ocid1.tenancy.oc1..aaaaaaaapdsseekeu76fqizickfz2gawyhdggvloa5jzxnmb7h46kjbotgaa"
+
+          # Zkontroluj zda VM uz bezi
+          RESULT=$(oci compute instance list \
+            --compartment-id "$TENANCY" \
+            --display-name myinvoice \
+            --lifecycle-state RUNNING 2>/dev/null || echo '{"data":[]}')
+          VM_COUNT=$(echo "$RESULT" | grep -c '"lifecycle-state"' || true)
+          [ -z "$VM_COUNT" ] && VM_COUNT=0
+
+          if [ "$VM_COUNT" != "0" ]; then
+            VM_STATUS="VM BEZI - jdi nasadit!"
+            TAGS="white_check_mark"
+          else
+            VM_STATUS="stale ceka na kapacitu"
+            TAGS="bar_chart"
+          fi
+
+          # Spocitej pokusy retry.yml za poslednich 7 hodin
+          SINCE=$(date -u -d '7 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+          ATTEMPTS=$(curl -s \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${GH_REPO}/actions/workflows/retry.yml/runs?per_page=100&created=%3E${SINCE}" | \
+            python3 -c "import sys,json; print(len(json.load(sys.stdin).get('workflow_runs',[])))" 2>/dev/null || echo "?")
+
+          DATE_LABEL=$(TZ=Europe/Prague date '+%d.%m.%Y %H:%M')
+
+          curl -s -X POST https://ntfy.sh/myinvoice-oci-gzjerfpw1hpw \
+            -H "Title: OCI report ${DATE_LABEL}" \
+            -H "Tags: ${TAGS}" \
+            -d "Za poslednich 7h: ${ATTEMPTS} pokusu | ${VM_STATUS}"
