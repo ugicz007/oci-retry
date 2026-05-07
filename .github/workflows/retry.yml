@@ -60,8 +60,10 @@ jobs:
           export SUPPRESS_LABEL_WARNING=True
 
           for AD in EU-FRANKFURT-1-AD-1 EU-FRANKFURT-1-AD-2 EU-FRANKFURT-1-AD-3; do
-            echo "Zkousim EVmv:$AD..."
-            oci compute instance launch \
+            echo "--- Zkousim AD: $AD ---"
+            # Pouzivame 'if', cimz obejdeme 'set -e' ktery GitHub Actions zapina automaticky.
+            # Bez 'if' by bash exitoval okamzite na non-zero exit code z oci.
+            if oci compute instance launch \
               --compartment-id "$TENANCY" \
               --availability-domain "EVmv:$AD" \
               --display-name "myinvoice" \
@@ -71,21 +73,37 @@ jobs:
               --shape-config '{"ocpus":1,"memoryInGBs":6}' \
               --assign-public-ip true \
               --ssh-authorized-keys-file <(echo "$SSH_KEY") \
-              --wait-for-state RUNNING > /tmp/out.txt 2>&1
-            EXIT_CODE=$?
-            cat /tmp/out.txt
-            if [ $EXIT_CODE -eq 0 ]; then
-              IP=$(python3 -c "import json; d=json.load(open('/tmp/out.txt')); print(d['data']['public-ip'])" 2>/dev/null || echo "viz OCI Console")
-              echo "VM spustena! IP: $IP"
-              curl -s -X POST https://ntfy.sh/myinvoice-oci-gzjerfpw1hpw \
-                -H "Title: OCI VM je hotova!" \
-                -H "Priority: high" \
-                -H "Tags: rocket" \
-                -d "myinvoice VM bezi na IP: $IP | SSH: ssh -i myinvoice_vm_key ubuntu@$IP"
-              exit 0
+              > /tmp/out.txt 2>&1; then
+              # Launch API vratil 200 OK - instance se vytvari
+              INSTANCE_ID=$(python3 -c "import json; d=json.load(open('/tmp/out.txt')); print(d['data']['id'])" 2>/dev/null || echo "")
+              echo "Instance vytvorena: $INSTANCE_ID — cekam na RUNNING..."
+              for i in $(seq 1 20); do
+                sleep 30
+                STATE=$(oci compute instance get --instance-id "$INSTANCE_ID" \
+                  --query 'data."lifecycle-state"' --raw-output 2>/dev/null || echo "UNKNOWN")
+                IP=$(oci compute instance get --instance-id "$INSTANCE_ID" \
+                  --query 'data."public-ip"' --raw-output 2>/dev/null || echo "")
+                echo "  Pokus $i/20: stav=$STATE IP=$IP"
+                if [ "$STATE" = "RUNNING" ]; then
+                  echo "VM spustena! IP: $IP"
+                  curl -s -X POST https://ntfy.sh/myinvoice-oci-gzjerfpw1hpw \
+                    -H "Title: OCI VM je hotova!" \
+                    -H "Priority: high" \
+                    -H "Tags: rocket" \
+                    -d "myinvoice VM bezi na IP: $IP | SSH: ssh -i myinvoice_vm_key ubuntu@$IP"
+                  exit 0
+                fi
+                if [ "$STATE" = "TERMINATED" ] || [ "$STATE" = "TERMINATING" ]; then
+                  echo "  Instance skoncila v $STATE — pokracuji na dalsi AD"
+                  break
+                fi
+              done
+              echo "  Timeout cekani na RUNNING pro $AD"
             else
-              echo "$AD kapacita nedostupna"
+              echo "$AD: kapacita nedostupna"
+              cat /tmp/out.txt | grep -i "message\|error\|Error" | head -3 || true
             fi
           done
-          echo "Vsechny AD plne, zkusim za 10 minut."
+
+          echo "Vsechny AD plne nebo timeout. Zkusim znovu za 10 minut."
           exit 0
