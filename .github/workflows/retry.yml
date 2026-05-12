@@ -5,10 +5,11 @@ on:
     - cron: '*/10 * * * *'
   workflow_dispatch:
 
-jobs:
 concurrency:
   group: oci-retry
   cancel-in-progress: false
+
+jobs:
   launch:
     runs-on: ubuntu-latest
     steps:
