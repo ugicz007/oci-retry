@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
+concurrency:
+  group: oci-retry
+  cancel-in-progress: false
   launch:
     runs-on: ubuntu-latest
     steps:
